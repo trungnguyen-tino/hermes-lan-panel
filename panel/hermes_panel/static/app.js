@@ -114,7 +114,12 @@
 
   /* ─── Định dạng ─────────────────────────────────────────────── */
   function gb(bytes) {
-    return (bytes / 1073741824).toFixed(1) + " GB";
+    return (bytes / 1073741824).toFixed(1);
+  }
+
+  /* "42.1/460.4 GB" — dạng đầy đủ "42.1 GB / 460.4 GB" quá dài cho cột meter. */
+  function gbPair(used, total) {
+    return gb(used) + "/" + gb(total) + " GB";
   }
 
   function uptime(seconds) {
@@ -201,11 +206,11 @@
     const host = data.host || {};
     if (host.memory && host.memory.total) {
       const used = host.memory.total - host.memory.available;
-      fillMeter("ram", host.memory.percent, host.memory.percent + "%", gb(used) + " / " + gb(host.memory.total));
+      fillMeter("ram", host.memory.percent, host.memory.percent + "%", gbPair(used, host.memory.total));
       $("pill-ram").textContent = host.memory.percent + "%";
     }
     if (host.disk && host.disk.total) {
-      fillMeter("disk", host.disk.percent, host.disk.percent + "%", gb(host.disk.used) + " / " + gb(host.disk.total));
+      fillMeter("disk", host.disk.percent, host.disk.percent + "%", gbPair(host.disk.used, host.disk.total));
       $("pill-disk").textContent = host.disk.percent + "%";
     }
     if (host.load_avg && host.load_avg.length) {

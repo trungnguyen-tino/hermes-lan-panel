@@ -178,11 +178,16 @@ a { color: var(--brand-700); }
   text-transform: uppercase;
   color: var(--slate-400);
 }
+/* justify-content + height phải khai báo TƯỜNG MINH: quy tắc `button, .btn` ở
+   dưới cũng khớp phần tử này (nav-item là <button>) và sẽ áp center + 38px,
+   làm icon/nhãn của mục không có badge bị dồn vào giữa. */
 .nav-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   width: 100%;
+  height: auto;
   padding: 8px 10px;
   margin-bottom: 2px;
   border: 0;
@@ -322,7 +327,11 @@ a { color: var(--brand-700); }
 
 /* Meter */
 .meter { padding: 20px; background: var(--card); border: 1px solid var(--slate-200); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); }
+/* Tiêu đề giữ nguyên một dòng, phần chú thích bên phải co lại + cắt bớt —
+   nếu không, ở cột hẹp nhãn bị xuống dòng và đè lên số liệu. */
 .meter .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.meter .top > * { min-width: 0; white-space: nowrap; }
+.meter .side { overflow: hidden; text-overflow: ellipsis; text-align: right; }
 /* line-height thoáng: chữ hoa tiếng Việt (Ổ, Ứ…) có dấu cao, sát quá sẽ bị cắt. */
 .meter .name { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; line-height: 1.7; color: var(--slate-500); }
 .meter .side { font-family: var(--font-mono); font-size: 11px; color: var(--slate-400); }
