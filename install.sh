@@ -347,15 +347,57 @@ ZALO_PERSONAL_ALLOW_ALL_USERS=true
 ZEOF
 fi
 
+# ---- 8b. Mật khẩu cho chat UI --------------------------------------------
+# Hermes >= 0.20 TỪ CHỐI bind chat UI ra ngoài loopback khi chưa cấu hình auth
+# ("Refusing to bind dashboard to 0.0.0.0"); cờ --insecure nay chỉ là no-op.
+# Nên muốn mở chat UI ra LAN thì phải đặt dashboard.basic_auth trong config.yaml.
+# Dùng chung tài khoản/mật khẩu với panel để người dùng chỉ phải nhớ một bộ.
+CHAT_AUTH_OK=false
+if [[ "$CHAT_LOCAL" != "true" && "$SKIP_HERMES" != "true" ]]; then
+  step "8b. Đặt mật khẩu cho chat UI"
+  if grep -q "basic_auth" "${HERMES_HOME}/config.yaml" 2>/dev/null && [[ -z "$PASSWORD_PLAIN" ]]; then
+    CHAT_AUTH_OK=true
+    log "Chat UI đã có mật khẩu từ trước — giữ nguyên"
+  elif [[ -n "$PASSWORD_PLAIN" ]]; then
+    if (cd "${HERMES_SRC_DIR}" && env HERMES_HOME="${HERMES_HOME}" \
+        CHAT_USER="${ADMIN_USER}" CHAT_PASS="${PASSWORD_PLAIN}" \
+        "${HERMES_SRC_DIR}/.venv/bin/python" - <<'PYEOF' >>"${LOG_FILE}" 2>&1
+import os, yaml
+from plugins.dashboard_auth.basic import hash_password
+path = os.path.join(os.environ["HERMES_HOME"], "config.yaml")
+data = yaml.safe_load(open(path).read()) if os.path.exists(path) else {}
+data = data if isinstance(data, dict) else {}
+dash = data.get("dashboard") if isinstance(data.get("dashboard"), dict) else {}
+dash["basic_auth"] = {
+    "username": os.environ["CHAT_USER"],
+    "password_hash": hash_password(os.environ["CHAT_PASS"]),
+}
+data["dashboard"] = dash
+yaml.safe_dump(data, open(path, "w"), allow_unicode=True, sort_keys=False)
+print("dashboard.basic_auth đã đặt")
+PYEOF
+    ); then
+      CHAT_AUTH_OK=true
+      log "Chat UI: đã đặt mật khẩu (tài khoản ${ADMIN_USER})"
+    else
+      log "CẢNH BÁO: không đặt được mật khẩu chat UI — sẽ chỉ mở ở 127.0.0.1"
+    fi
+  else
+    log "CẢNH BÁO: chưa có mật khẩu chat UI. Chạy lại kèm --admin-pass để bật, tạm mở ở 127.0.0.1"
+  fi
+fi
+
 # ---- 9. systemd -----------------------------------------------------------
 step "9. Viết unit systemd"
 
-if [[ "$CHAT_LOCAL" == "true" ]]; then
-  DASHBOARD_ARGS="--no-open --host 127.0.0.1 --port ${DASHBOARD_PORT}"
+# Chỉ bind ra LAN khi chat UI thực sự có mật khẩu — nếu không Hermes sẽ khởi
+# động lại vô hạn và service không bao giờ lên.
+if [[ "$CHAT_LOCAL" == "true" || "$CHAT_AUTH_OK" != "true" ]]; then
+  DASHBOARD_BIND="127.0.0.1"
 else
-  # --insecure là bắt buộc khi bind ra ngoài loopback (Hermes chặn mặc định).
-  DASHBOARD_ARGS="--no-open --host 0.0.0.0 --port ${DASHBOARD_PORT} --insecure"
+  DASHBOARD_BIND="0.0.0.0"
 fi
+DASHBOARD_ARGS="--no-open --host ${DASHBOARD_BIND} --port ${DASHBOARD_PORT}"
 
 cat > /etc/systemd/system/hermes.target <<'EOF'
 [Unit]
@@ -498,15 +540,16 @@ log "    Mật khẩu  : (giữ nguyên mật khẩu cũ)"
 fi
 log ""
 log "  CHAT UI: ${CHAT_URL}  $([[ "$CHAT_OK" == true ]] && echo '(đã phản hồi)' || echo '(chưa phản hồi)')"
-if [[ "$CHAT_LOCAL" != "true" ]]; then
-log "    Lưu ý: chat UI KHÔNG có mật khẩu — hãy đặt Access List trên Nginx Proxy Manager,"
-log "           hoặc cài lại với --chat-local nếu không cần dùng."
+if [[ "$DASHBOARD_BIND" == "0.0.0.0" ]]; then
+log "    Đăng nhập chat UI: dùng chung tài khoản/mật khẩu của panel ở trên."
+else
+log "    Chat UI chỉ nghe 127.0.0.1 (chưa đặt được mật khẩu hoặc bật --chat-local)."
+log "    Xem tạm bằng SSH tunnel:  ssh -L ${DASHBOARD_PORT}:127.0.0.1:${DASHBOARD_PORT} root@${LAN_IP}"
 fi
 log ""
 log "  Trên Nginx Proxy Manager:"
-log "    Proxy Host  -> Forward: ${LAN_IP}:${PANEL_PORT}   (bật Websockets)"
-log "    Nếu proxy cả chat UI, thêm ở tab Advanced:"
-log "      proxy_set_header Host localhost:${DASHBOARD_PORT};"
+log "    Panel   -> Forward: ${LAN_IP}:${PANEL_PORT}   (bật Websockets)"
+log "    Chat UI -> Forward: ${LAN_IP}:${DASHBOARD_PORT}  (bật Websockets)"
 log ""
 log "  Bước tiếp theo: mở panel → đăng nhập → 'Đăng nhập ChatGPT' → 'Kết nối Zalo'."
 log "  Log cài đặt: ${LOG_FILE}"
