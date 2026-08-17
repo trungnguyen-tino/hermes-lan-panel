@@ -16,7 +16,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import socket
+import time
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -36,9 +39,14 @@ router = APIRouter(tags=["zalo"], dependencies=[Depends(require_session)])
 
 OWNER_UID_KEY = "ZALO_PERSONAL_OWNER_UID"
 SIDECAR_PORT_KEY = "ZALO_PERSONAL_SIDECAR_PORT"
+SESSION_DIR_KEY = "ZALO_PERSONAL_SESSION_DIR"
 DEFAULT_SIDECAR_PORT = 3838
+DEFAULT_SESSION_DIR = "/opt/data/zalo"
 SIDECAR_TIMEOUT = 8.0
 _GATEWAY = "hermes-gateway"
+# Không tự bật lại sidecar dày hơn mức này (GUI poll 8 giây một lần).
+_RESPAWN_COOLDOWN = 60.0
+_last_respawn = 0.0
 
 
 def _sidecar_port(settings: Settings) -> int:
@@ -63,6 +71,16 @@ def _owner_uid(settings: Settings) -> str:
     return settings.merged_env().get(OWNER_UID_KEY, "").strip()
 
 
+def _session_dir(settings: Settings) -> Path:
+    raw = settings.merged_env().get(SESSION_DIR_KEY, "").strip()
+    return Path(raw or DEFAULT_SESSION_DIR)
+
+
+def _has_saved_login(settings: Settings) -> bool:
+    """Đã từng quét QR thành công? (sidecar lưu phiên ra đĩa)"""
+    return (_session_dir(settings) / "session.json").exists()
+
+
 def _unreachable() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -83,23 +101,45 @@ async def _ensure_sidecar(settings: Settings) -> bool:
 
     env = os.environ.copy()
     merged = settings.merged_env()
-    for key in (SIDECAR_PORT_KEY, "ZALO_PERSONAL_SESSION_DIR", "ZALO_PERSONAL_PROXY", "HOME"):
+    for key in (SIDECAR_PORT_KEY, SESSION_DIR_KEY, "ZALO_PERSONAL_PROXY", "HOME"):
         if merged.get(key):
             env[key] = merged[key]
     env.setdefault("HOME", "/root")
 
+    # Chạy trong scope systemd riêng: nếu để nó là con của panel, systemd giết cả
+    # cgroup khi `systemctl restart hermes-panel` và người dùng vừa quét QR xong
+    # lại thấy "chưa kết nối". Không có systemd-run thì chạy trực tiếp.
+    command: list[str] = ["node", str(server_js)]
+    if shutil.which("systemd-run"):
+        command = [
+            "systemd-run", "--scope", "--quiet", "--collect",
+            "--unit", "hermes-zalo-sidecar", *command,
+        ]
+
+    # Log ra đĩa thay vì /dev/null — không có log thì mọi lỗi đăng nhập Zalo
+    # đều biến thành "sidecar chưa sẵn sàng" mà không biết vì sao.
+    log_path = _session_dir(settings) / "sidecar.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "ab")
+    except OSError:
+        log_file = None
+
     try:
         await asyncio.create_subprocess_exec(
-            "node", str(server_js),
+            *command,
             cwd=str(server_js.parent),
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=log_file or asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.STDOUT if log_file else asyncio.subprocess.DEVNULL,
             start_new_session=True,  # detach so it outlives this request
         )
     except (FileNotFoundError, OSError) as exc:
         logger.error("Không spawn được sidecar Zalo: %s", exc)
         return False
+    finally:
+        if log_file is not None:
+            log_file.close()
 
     for _ in range(20):
         if _port_open(port):
@@ -129,15 +169,29 @@ async def _handover(settings: Settings) -> None:
 @router.get("/api/zalo/status", response_model=ApiResponse)
 async def zalo_status(settings: Annotated[Settings, Depends(get_settings_dep)]) -> ApiResponse:
     """status ∈ disconnected | pending | scanned | connected | error."""
+    global _last_respawn
     owner_set = bool(_owner_uid(settings))
     try:
         resp = await _sidecar(settings, "GET", "/health")
     except httpx.RequestError:
-        return ApiResponse(
-            ok=True,
-            data={"status": "disconnected", "bot_uid": None, "name": None,
-                  "sidecar": False, "owner_set": owner_set},
-        )
+        # Sidecar tắt nhưng phiên đăng nhập vẫn còn trên đĩa (thường do panel hoặc
+        # gateway vừa khởi động lại) → bật lại để đọc trạng thái, đừng báo người
+        # dùng là "chưa kết nối" và bắt họ quét QR lần nữa.
+        revived = False
+        if _has_saved_login(settings) and time.monotonic() - _last_respawn > _RESPAWN_COOLDOWN:
+            _last_respawn = time.monotonic()
+            revived = await _ensure_sidecar(settings)
+        if revived:
+            try:
+                resp = await _sidecar(settings, "GET", "/health")
+            except httpx.RequestError:
+                revived = False
+        if not revived:
+            return ApiResponse(
+                ok=True,
+                data={"status": "disconnected", "bot_uid": None, "name": None,
+                      "sidecar": False, "owner_set": owner_set},
+            )
     if resp.status_code != 200:
         return ApiResponse(
             ok=True,

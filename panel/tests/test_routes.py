@@ -199,3 +199,34 @@ def test_zalo_set_owner_by_uid_persists_and_hands_over(auth_client, settings, mo
     assert read_env(settings.hermes_env_file)["ZALO_PERSONAL_OWNER_UID"] == "12345"
     assert handovers == ["done"]
     assert auth_client.get("/api/zalo/owner").json()["data"]["owner_set"] is True
+
+
+def test_zalo_status_revives_sidecar_when_a_login_is_saved(auth_client, settings, monkeypatch, tmp_path):
+    """Panel/gateway restart giết sidecar; phiên vẫn còn thì phải bật lại, không bắt quét QR lại."""
+    session_dir = tmp_path / "zalo-session"
+    session_dir.mkdir()
+    (session_dir / "session.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("hermes_panel.routes.zalo._session_dir", lambda _s: session_dir)
+    monkeypatch.setattr("hermes_panel.routes.zalo._last_respawn", 0.0)
+
+    tried: list[str] = []
+
+    async def fake_ensure(_settings):
+        tried.append("spawn")
+        return False  # không lên được → vẫn báo disconnected, nhưng đã thử
+
+    monkeypatch.setattr("hermes_panel.routes.zalo._ensure_sidecar", fake_ensure)
+    data = auth_client.get("/api/zalo/status").json()["data"]
+    assert tried == ["spawn"]
+    assert data["status"] == "disconnected"
+
+
+def test_zalo_status_does_not_spawn_without_a_saved_login(auth_client, monkeypatch, tmp_path):
+    monkeypatch.setattr("hermes_panel.routes.zalo._session_dir", lambda _s: tmp_path / "trống")
+    monkeypatch.setattr("hermes_panel.routes.zalo._last_respawn", 0.0)
+
+    async def fail(_settings):
+        raise AssertionError("không được spawn khi chưa từng đăng nhập")
+
+    monkeypatch.setattr("hermes_panel.routes.zalo._ensure_sidecar", fail)
+    assert auth_client.get("/api/zalo/status").json()["data"]["sidecar"] is False
