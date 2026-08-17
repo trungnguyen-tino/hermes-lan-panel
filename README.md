@@ -3,6 +3,11 @@
 Cài **Hermes Agent** + **GUI quản lý** cho VPS/VM trong mạng nội bộ (vd `192.168.232.79`),
 truy cập qua **Nginx Proxy Manager**. Không Caddy, không Let's Encrypt, không cần domain công khai.
 
+Giao diện dựng theo đúng design system của [openclaw-control-panel](https://github.com/trungnguyen-tino/openclaw-control-panel)
+(sidebar 260px chia nhóm, topbar breadcrumb + stat pill, thẻ bo tròn shadow mềm, meter card, màn hình
+đăng nhập split-hero) nhưng viết bằng HTML/CSS/JS thuần — **không npm, không build, không CDN**, nên
+cài nhanh và chạy được cả khi VPS không ra Internet.
+
 GUI chỉ gồm những thứ cần dùng hằng ngày:
 
 | Thẻ | Làm được gì |
@@ -12,6 +17,9 @@ GUI chỉ gồm những thứ cần dùng hằng ngày:
 | **Zalo bot** | Quét QR đăng nhập bot, nhập số Zalo của sếp làm chủ bot, ngắt kết nối |
 | **Model & API key** | Đổi provider/model, lưu + kiểm tra API key (OpenAI, Anthropic, DeepSeek, Gemini, OpenRouter, Groq, xAI) |
 | **Nhật ký** | Đọc log journalctl của từng service ngay trên web |
+
+Mỗi mục là một trang riêng trong sidebar; trang **Bảng điều khiển** gộp meter RAM/ổ đĩa/tải/uptime,
+danh sách dịch vụ và tóm tắt kết nối.
 
 ## Cài đặt
 
@@ -141,7 +149,7 @@ curl http://127.0.0.1:8088/health        # panel còn sống?
 cd panel
 uv venv --python 3.11 .venv
 VIRTUAL_ENV=.venv uv pip install --python .venv/bin/python -e '.[dev]'
-.venv/bin/python -m pytest -q          # 60 test
+.venv/bin/python -m pytest -q          # 61 test
 ```
 
 Chạy thử panel không cần VPS:

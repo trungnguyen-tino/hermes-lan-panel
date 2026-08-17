@@ -3,22 +3,36 @@
   "use strict";
 
   const { $, api, toast, register } = window.Panel;
-  const badge = (el, text, kind) => {
-    el.textContent = text;
-    el.className = "badge " + (kind || "");
-  };
+
+  /* Một trạng thái hiện ở 3 chỗ: thẻ chi tiết, mục sidebar, dòng tổng quan.
+     Sidebar hẹp nên dùng nhãn rút gọn, rỗng thì ẩn hẳn cho đỡ rối. */
+  function setBadge(ids, text, tone, short) {
+    ids.forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      const isNav = id.indexOf("nav-") === 0;
+      const label = isNav ? (short === undefined ? text : short) : text;
+      el.textContent = label;
+      el.className = "badge " + (tone || "");
+      if (isNav && !label) el.classList.add("hidden");
+    });
+  }
 
   /* ─── ChatGPT (Codex OAuth) ─────────────────────────────────── */
+  const CODEX_IDS = ["codex-badge", "nav-codex-badge", "ov-codex"];
+
   async function refreshCodex() {
     const data = await api("/api/codex/status");
     const box = $("codex-pending");
+
     if (data.status === "connected") {
-      badge($("codex-badge"), data.active ? "đã kết nối" : "đã lưu (chưa dùng)", data.active ? "ok" : "warn");
+      setBadge(CODEX_IDS, data.active ? "đã kết nối" : "đã lưu", data.active ? "ok" : "warn", "ok");
       box.classList.add("hidden");
       $("codex-disable").classList.remove("hidden");
       $("codex-start").textContent = "Đăng nhập lại";
+      $("codex-model").textContent = data.model || "—";
     } else if (data.status === "pending") {
-      badge($("codex-badge"), "đang chờ xác nhận", "warn");
+      setBadge(CODEX_IDS, "chờ xác nhận", "warn", "chờ");
       if (data.url) {
         $("codex-url").textContent = data.url;
         $("codex-url").href = data.url;
@@ -26,7 +40,7 @@
         box.classList.remove("hidden");
       }
     } else {
-      badge($("codex-badge"), "chưa kết nối");
+      setBadge(CODEX_IDS, "chưa kết nối", "", "");
       box.classList.add("hidden");
       $("codex-disable").classList.add("hidden");
     }
@@ -35,7 +49,7 @@
   $("codex-start").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
-    badge($("codex-badge"), "đang tạo mã…", "warn");
+    setBadge(CODEX_IDS, "đang tạo mã…", "warn", "chờ");
     try {
       const data = await api("/api/codex/start", { method: "POST" });
       $("codex-url").textContent = data.url;
@@ -56,7 +70,7 @@
     if (navigator.clipboard) {
       navigator.clipboard.writeText(code).then(
         () => toast("Đã sao chép mã.", "ok"),
-        () => toast("Không sao chép được, hãy chép tay: " + code, "err")
+        () => toast("Không sao chép được, chép tay: " + code, "err")
       );
     } else {
       toast("Mã: " + code);
@@ -67,33 +81,38 @@
     if (!confirm("Ngắt kết nối ChatGPT? Bot sẽ ngừng dùng tài khoản này.")) return;
     try {
       await api("/api/codex/disable", { method: "POST", body: {} });
-      toast("Đã ngắt ChatGPT. Chọn provider khác nếu cần.", "ok");
-      refreshCodex();
+      toast("Đã ngắt ChatGPT. Chọn nhà cung cấp khác nếu cần.", "ok");
     } catch (e) {
       toast(e.message, "err");
     }
+    refreshCodex().catch(() => {});
   });
 
-  $("codex-import").addEventListener("click", async () => {
+  $("codex-import").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
     const raw = $("codex-json").value.trim();
     if (!raw) return toast("Chưa dán nội dung auth.json.", "err");
+    button.disabled = true;
     try {
       await api("/api/codex/import", { method: "POST", body: { auth_json: raw } });
       $("codex-json").value = "";
       toast("Đã nạp auth.json.", "ok");
-      refreshCodex();
     } catch (e) {
       toast(e.message, "err");
+    } finally {
+      button.disabled = false;
+      refreshCodex().catch(() => {});
     }
   });
 
   /* ─── Zalo ──────────────────────────────────────────────────── */
+  const ZALO_IDS = ["zalo-badge", "nav-zalo-badge", "ov-zalo"];
   const ZALO_LABEL = {
-    connected: ["đã đăng nhập", "ok"],
-    pending: ["chờ quét QR", "warn"],
-    scanned: ["đã quét, đang xử lý", "warn"],
-    error: ["lỗi", "err"],
-    disconnected: ["chưa kết nối", ""],
+    connected: ["đã đăng nhập", "ok", "ok"],
+    pending: ["chờ quét QR", "warn", "QR"],
+    scanned: ["đang xử lý", "warn", "chờ"],
+    error: ["lỗi", "err", "lỗi"],
+    disconnected: ["chưa kết nối", "", ""],
   };
 
   function showQr() {
@@ -103,8 +122,8 @@
 
   async function refreshZalo() {
     const data = await api("/api/zalo/status");
-    const label = ZALO_LABEL[data.status] || [data.status, ""];
-    badge($("zalo-badge"), label[0], label[1]);
+    const label = ZALO_LABEL[data.status] || [data.status, "", ""];
+    setBadge(ZALO_IDS, label[0], label[1], label[2]);
 
     const connected = data.status === "connected";
     $("zalo-disconnect").classList.toggle("hidden", !connected);
@@ -113,16 +132,17 @@
     $("zalo-owner-box").classList.toggle("hidden", !connected || data.owner_set);
 
     const bits = [];
-    if (data.bot_uid) bits.push("Bot: " + (data.name || data.bot_uid));
-    bits.push(data.owner_set ? "Đã có chủ bot ✓" : "Chưa đặt chủ bot");
-    if (data.error) bits.push("Lỗi: " + data.error);
+    bits.push(data.bot_uid ? "Bot: " + (data.name || data.bot_uid) : "Chưa có tài khoản bot");
+    bits.push(data.owner_set ? "đã có chủ bot" : "chưa đặt chủ bot");
+    if (data.error) bits.push("lỗi: " + data.error);
     $("zalo-info").textContent = bits.join(" · ");
+    $("ov-owner").textContent = data.owner_set ? "đã đặt" : "chưa đặt";
   }
 
   $("zalo-connect").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
-    badge($("zalo-badge"), "đang khởi động…", "warn");
+    setBadge(ZALO_IDS, "đang khởi động…", "warn", "chờ");
     try {
       const data = await api("/api/zalo/connect", { method: "POST" });
       if (data.status === "connected") {
@@ -146,7 +166,7 @@
     button.disabled = true;
     try {
       await api("/api/zalo/set-owner", { method: "POST", body: { phone: phone } });
-      toast("Đã đặt chủ bot, đang khởi động lại gateway…", "ok");
+      toast("Đã đặt chủ bot, gateway đang khởi động lại…", "ok");
       $("zalo-phone").value = "";
     } catch (e) {
       toast(e.message, "err");
@@ -184,11 +204,14 @@
       option.value = name;
       list.appendChild(option);
     });
+
     const needsKey = Boolean(provider.env_key);
     $("apikey-box").classList.toggle("hidden", !needsKey);
-    $("apikey-state").textContent = needsKey
-      ? (provider.key_set ? "(đã lưu " + provider.key_masked + ")" : "(chưa có)")
-      : "";
+    if (needsKey) {
+      const state = $("apikey-state");
+      state.textContent = provider.key_set ? "đã lưu " + provider.key_masked : "chưa có";
+      state.className = "badge " + (provider.key_set ? "ok" : "warn");
+    }
   }
 
   async function loadProviders() {
@@ -204,14 +227,16 @@
     });
     if (data.current.provider) select.value = data.current.provider;
     $("model-input").value = data.current.model || "";
+    $("ov-model").textContent = data.current.provider
+      ? data.current.provider + " / " + (data.current.model || "mặc định")
+      : "chưa cấu hình";
     renderProviderDetails();
   }
 
   $("provider-select").addEventListener("change", renderProviderDetails);
 
-  /* Lưu tham chiếu nút TRƯỚC await: sau await thì event.currentTarget = null. */
   $("model-save").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
+    const button = event.currentTarget;   // giữ tham chiếu TRƯỚC await
     button.disabled = true;
     try {
       const data = await api("/api/model", {
@@ -219,6 +244,7 @@
         body: { provider: $("provider-select").value, model: $("model-input").value.trim() },
       });
       $("model-input").value = data.model;
+      $("ov-model").textContent = data.provider + " / " + (data.model || "mặc định");
       toast("Đã đặt " + data.provider + " / " + data.model + ", gateway đang khởi động lại.", "ok");
     } catch (e) {
       toast(e.message, "err");
@@ -227,9 +253,11 @@
     }
   });
 
-  $("apikey-test").addEventListener("click", async () => {
+  $("apikey-test").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
     const key = $("apikey-input").value.trim();
     if (!key) return toast("Chưa nhập API key.", "err");
+    button.disabled = true;
     try {
       const data = await api("/api/test-key", {
         method: "POST",
@@ -238,12 +266,16 @@
       toast("Key hợp lệ (HTTP " + data.status_code + ").", "ok");
     } catch (e) {
       toast(e.message, "err");
+    } finally {
+      button.disabled = false;
     }
   });
 
-  $("apikey-save").addEventListener("click", async () => {
+  $("apikey-save").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
     const key = $("apikey-input").value.trim();
     if (!key) return toast("Chưa nhập API key.", "err");
+    button.disabled = true;
     try {
       await api("/api/api-key", {
         method: "PUT",
@@ -251,20 +283,22 @@
       });
       $("apikey-input").value = "";
       toast("Đã lưu key, gateway đang khởi động lại.", "ok");
-      loadProviders();
+      await loadProviders();
     } catch (e) {
       toast(e.message, "err");
+    } finally {
+      button.disabled = false;
     }
   });
 
   $("apikey-delete").addEventListener("click", async () => {
-    if (!confirm("Xoá API key của provider này?")) return;
+    if (!confirm("Xoá API key của nhà cung cấp này?")) return;
     try {
       await api("/api/api-key?provider=" + encodeURIComponent($("provider-select").value), {
         method: "DELETE",
       });
       toast("Đã xoá key.", "ok");
-      loadProviders();
+      await loadProviders();
     } catch (e) {
       toast(e.message, "err");
     }
@@ -294,12 +328,11 @@
     logTimer = event.currentTarget.checked ? setInterval(loadLogs, 10000) : null;
   });
 
-  /* Chỉ ChatGPT + Zalo cần bám theo vòng lặp; provider nạp một lần để không
-     ghi đè lựa chọn người dùng đang gõ dở. */
+  /* ChatGPT + Zalo bám theo vòng lặp; provider chỉ nạp một lần để không ghi đè
+     lựa chọn người dùng đang gõ dở. */
   register(refreshCodex);
   register(refreshZalo);
   register(function once() {
-    if (providers.length) return Promise.resolve();
-    return loadProviders();
+    return providers.length ? Promise.resolve() : loadProviders();
   });
 })();
