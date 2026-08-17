@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermes Panel</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+</head>
+<body>
+
+<!-- ─── Đăng nhập ─────────────────────────────────────────────── -->
+<section id="login-screen" class="screen center">
+  <form id="login-form" class="card login-card">
+    <h1>Hermes Panel</h1>
+    <p class="muted">Đăng nhập để quản lý bot</p>
+    <label>Tài khoản<input id="login-user" autocomplete="username" required></label>
+    <label>Mật khẩu<input id="login-pass" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">Đăng nhập</button>
+    <p id="login-error" class="error hidden"></p>
+  </form>
+</section>
+
+<!-- ─── Bảng điều khiển ───────────────────────────────────────── -->
+<section id="app-screen" class="screen hidden">
+  <header class="topbar">
+    <div>
+      <strong>Hermes Panel</strong>
+      <span class="muted" id="host-label">—</span>
+    </div>
+    <div class="topbar-actions">
+      <a id="chat-link" class="btn" href="#" target="_blank" rel="noopener">Mở chat UI</a>
+      <button id="logout-btn" class="btn">Đăng xuất</button>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- Trạng thái dịch vụ -->
+    <article class="card">
+      <h2>Trạng thái dịch vụ</h2>
+      <div id="services"></div>
+      <p class="muted small" id="host-stats">—</p>
+      <p class="muted small" id="hermes-version">—</p>
+    </article>
+
+    <!-- ChatGPT -->
+    <article class="card">
+      <h2>ChatGPT <span id="codex-badge" class="badge">đang kiểm tra…</span></h2>
+      <p class="muted small">Đăng nhập tài khoản ChatGPT để bot dùng làm bộ não (không cần API key).</p>
+      <div class="row">
+        <button id="codex-start" class="primary">Đăng nhập ChatGPT</button>
+        <button id="codex-disable" class="btn danger hidden">Ngắt kết nối</button>
+      </div>
+      <div id="codex-pending" class="hidden panel-box">
+        <p>1. Mở link: <a id="codex-url" href="#" target="_blank" rel="noopener"></a></p>
+        <p>2. Nhập mã: <code id="codex-code" class="code"></code>
+          <button id="codex-copy" class="btn tiny">Sao chép</button></p>
+        <p class="muted small">Trang này tự kiểm tra mỗi 3 giây, đăng nhập xong sẽ tự cập nhật.</p>
+      </div>
+      <details class="mt">
+        <summary class="muted small">Cách khác: dán sẵn auth.json</summary>
+        <textarea id="codex-json" rows="4" placeholder='{"credential_pool": {...}}'></textarea>
+        <button id="codex-import" class="btn">Nạp auth.json</button>
+      </details>
+    </article>
+
+    <!-- Zalo -->
+    <article class="card">
+      <h2>Zalo bot <span id="zalo-badge" class="badge">đang kiểm tra…</span></h2>
+      <p class="muted small">Quét QR bằng số Zalo <strong>phụ</strong> (số này thành bot), sau đó nhập số Zalo của sếp để điều khiển bot.</p>
+      <div class="row">
+        <button id="zalo-connect" class="primary">Kết nối Zalo</button>
+        <button id="zalo-disconnect" class="btn danger hidden">Ngắt kết nối</button>
+      </div>
+      <div id="zalo-qr-box" class="hidden panel-box center">
+        <img id="zalo-qr" alt="Mã QR Zalo" width="240" height="240">
+        <p class="muted small">Mở Zalo → Thêm → Mã QR → quét ảnh trên</p>
+      </div>
+      <div id="zalo-owner-box" class="hidden panel-box">
+        <label>Số Zalo của sếp (người ra lệnh cho bot)
+          <input id="zalo-phone" inputmode="tel" placeholder="09xxxxxxxx"></label>
+        <button id="zalo-owner-save" class="primary">Lưu chủ bot</button>
+      </div>
+      <p id="zalo-info" class="muted small"></p>
+    </article>
+
+    <!-- Model + API key -->
+    <article class="card">
+      <h2>Model &amp; API key</h2>
+      <label>Nhà cung cấp
+        <select id="provider-select"></select></label>
+      <label>Model
+        <input id="model-input" list="model-list" placeholder="vd: gpt-5.5">
+        <datalist id="model-list"></datalist></label>
+      <button id="model-save" class="primary">Lưu model</button>
+
+      <div id="apikey-box" class="mt">
+        <label>API key <span id="apikey-state" class="muted small"></span>
+          <input id="apikey-input" type="password" placeholder="dán API key"></label>
+        <div class="row">
+          <button id="apikey-test" class="btn">Kiểm tra</button>
+          <button id="apikey-save" class="primary">Lưu key</button>
+          <button id="apikey-delete" class="btn danger">Xoá key</button>
+        </div>
+      </div>
+    </article>
+
+    <!-- Log -->
+    <article class="card wide">
+      <h2>Nhật ký</h2>
+      <div class="row">
+        <select id="log-service">
+          <option value="hermes-gateway">hermes-gateway (bot)</option>
+          <option value="hermes-dashboard">hermes-dashboard (chat UI)</option>
+          <option value="hermes-panel">hermes-panel (trang này)</option>
+        </select>
+        <select id="log-lines">
+          <option value="100">100 dòng</option>
+          <option value="300" selected>300 dòng</option>
+          <option value="1000">1000 dòng</option>
+        </select>
+        <button id="log-refresh" class="btn">Tải lại</button>
+        <label class="inline"><input id="log-auto" type="checkbox"> tự động 10s</label>
+      </div>
+      <pre id="log-output" class="log">—</pre>
+    </article>
+
+  </main>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/app.js"></script>
+<script src="/static/features.js"></script>
+</body>
+</html>
