@@ -157,12 +157,21 @@
     return "warn";
   }
 
+  /* "Hermes Agent v0.20.2 (2026.8.16) · upstream eb63c254" -> "v0.20.2 (2026.8.16)":
+     phần upstream chỉ tổ chiếm chỗ, và chuỗi đã có sẵn chữ "Hermes". */
+  function shortVersion(raw) {
+    const head = String(raw || "").split("·")[0].trim();
+    return head.replace(/^Hermes Agent\s*/i, "") || "không rõ";
+  }
+
   async function loadInfo() {
     const info = await api("/api/info");
-    $("head-host").textContent = info.hostname + " · " + info.ip + " · Hermes " + info.hermes_version;
+    const version = shortVersion(info.hermes_version);
+    $("head-host").textContent = info.hostname + " · " + info.ip + " · Hermes " + version;
     $("chat-link").href = info.chat_url;
     $("ov-ip").textContent = info.ip;
-    $("ov-hermes").textContent = info.hermes_version;
+    $("ov-hermes").textContent = version;
+    $("ov-hermes").title = info.hermes_version;
   }
 
   async function loadStatus() {
