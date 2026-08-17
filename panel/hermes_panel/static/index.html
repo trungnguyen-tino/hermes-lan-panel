@@ -287,34 +287,48 @@
 
         <div class="grid cols-2">
           <div class="card">
-            <div class="card-head"><div><h3>Nhà cung cấp &amp; model</h3><p>Lưu xong gateway tự khởi động lại</p></div></div>
+            <div class="card-head"><div><h3>Nhà cung cấp &amp; model</h3><p id="provider-count">Danh sách lấy trực tiếp từ Hermes</p></div></div>
             <div class="card-body">
               <div class="field">
                 <label for="provider-select">Nhà cung cấp</label>
                 <select id="provider-select"></select>
+                <span class="hint" id="provider-desc"></span>
               </div>
               <div class="field">
                 <label for="model-input">Model</label>
-                <input id="model-input" list="model-list" placeholder="vd: gpt-5.5">
+                <input id="model-input" list="model-list" placeholder="đang tải danh sách…">
                 <datalist id="model-list"></datalist>
-                <span class="hint">Gõ tự do hoặc chọn gợi ý theo nhà cung cấp.</span>
+                <span class="hint" id="model-hint"></span>
               </div>
-              <button class="primary" id="model-save">Lưu model</button>
+              <div class="row">
+                <button class="primary" id="model-save">Lưu model</button>
+                <button id="model-reload">Tải lại danh sách</button>
+              </div>
             </div>
           </div>
 
           <div class="card" id="apikey-box">
-            <div class="card-head"><div><h3>API key <span class="badge" id="apikey-state">—</span></h3><p>Chỉ lưu trên máy chủ, hiển thị lại dạng che</p></div></div>
+            <div class="card-head"><div><h3>API key <span class="badge" id="apikey-state">—</span></h3><p id="apikey-note">Chỉ lưu trên máy chủ, hiển thị lại dạng che</p></div></div>
             <div class="card-body">
               <div class="field">
                 <label for="apikey-input">API key</label>
                 <input id="apikey-input" type="password" placeholder="dán API key">
+                <span class="hint" id="apikey-hint"></span>
               </div>
               <div class="row">
-                <button id="apikey-test">Kiểm tra</button>
                 <button class="primary" id="apikey-save">Lưu key</button>
                 <button class="danger" id="apikey-delete">Xoá key</button>
               </div>
+            </div>
+          </div>
+
+          <div class="card hidden" id="oauth-box">
+            <div class="card-head"><div><h3>Đăng nhập tài khoản</h3><p id="oauth-note">—</p></div></div>
+            <div class="card-body">
+              <p class="muted small" style="margin:0">
+                Nhà cung cấp này không dùng API key mà đăng nhập bằng tài khoản.
+                Với ChatGPT, mở tab <strong>ChatGPT</strong> ở thanh bên để đăng nhập.
+              </p>
             </div>
           </div>
         </div>

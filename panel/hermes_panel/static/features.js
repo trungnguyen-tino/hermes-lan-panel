@@ -188,52 +188,121 @@
   });
 
   /* ─── Model + API key ───────────────────────────────────────── */
+  /* Danh sách provider và model đều do Hermes cung cấp (/api/providers,
+     /api/models) — panel không tự chép danh sách, vì slug model đổi theo bản
+     Hermes (vd deepseek-chat -> deepseek-v4-pro). */
   let providers = [];
 
   function currentProvider() {
     return providers.find((p) => p.id === $("provider-select").value) || null;
   }
 
-  function renderProviderDetails() {
-    const provider = currentProvider();
-    const list = $("model-list");
-    list.innerHTML = "";
-    if (!provider) return;
-    (provider.models || []).forEach((name) => {
-      const option = document.createElement("option");
-      option.value = name;
-      list.appendChild(option);
-    });
-
-    const needsKey = Boolean(provider.env_key);
-    $("apikey-box").classList.toggle("hidden", !needsKey);
-    if (needsKey) {
-      const state = $("apikey-state");
-      state.textContent = provider.key_set ? "đã lưu " + provider.key_masked : "chưa có";
-      state.className = "badge " + (provider.key_set ? "ok" : "warn");
-    }
-  }
-
   async function loadProviders() {
     const data = await api("/api/providers");
-    providers = data.providers;
+    providers = data.providers || [];
+
     const select = $("provider-select");
+    const previous = select.value;
     select.innerHTML = "";
-    providers.forEach((provider) => {
-      const option = document.createElement("option");
-      option.value = provider.id;
-      option.textContent = provider.label;
-      select.appendChild(option);
-    });
-    if (data.current.provider) select.value = data.current.provider;
+
+    if (!providers.length) {
+      $("provider-count").textContent = data.warning || "Chưa đọc được danh sách từ Hermes.";
+    } else {
+      $("provider-count").textContent =
+        "Hermes hỗ trợ " + providers.length + " nhà cung cấp — danh sách lấy trực tiếp từ agent";
+      const groups = [
+        ["accounts", "Đăng nhập bằng tài khoản"],
+        ["keys", "Dùng API key"],
+      ];
+      groups.forEach((pair) => {
+        const members = providers.filter((p) => (p.tab || "keys") === pair[0]);
+        if (!members.length) return;
+        const group = document.createElement("optgroup");
+        group.label = pair[1];
+        members.forEach((provider) => {
+          const option = document.createElement("option");
+          option.value = provider.id;
+          option.textContent = provider.label;
+          group.appendChild(option);
+        });
+        select.appendChild(group);
+      });
+    }
+
+    const wanted = previous || data.current.provider;
+    if (wanted && providers.some((p) => p.id === wanted)) select.value = wanted;
     $("model-input").value = data.current.model || "";
     $("ov-model").textContent = data.current.provider
       ? data.current.provider + " / " + (data.current.model || "mặc định")
       : "chưa cấu hình";
     renderProviderDetails();
+    await loadModels(false);
   }
 
-  $("provider-select").addEventListener("change", renderProviderDetails);
+  function renderProviderDetails() {
+    const provider = currentProvider();
+    if (!provider) return;
+    $("provider-desc").textContent = provider.description || "";
+
+    const needsKey = Boolean(provider.env_key);
+    $("apikey-box").classList.toggle("hidden", !needsKey);
+    $("oauth-box").classList.toggle("hidden", needsKey);
+
+    if (needsKey) {
+      const state = $("apikey-state");
+      state.textContent = provider.key_set ? "đã lưu " + provider.key_masked : "chưa có";
+      state.className = "badge " + (provider.key_set ? "ok" : "warn");
+      $("apikey-hint").textContent =
+        "Lưu vào biến " + provider.env_key +
+        (provider.signup_url ? " · lấy key tại " + provider.signup_url : "");
+    } else {
+      $("oauth-note").textContent = provider.label + " — đăng nhập kiểu " + (provider.auth_type || "oauth");
+    }
+  }
+
+  async function loadModels(refresh) {
+    const provider = $("provider-select").value;
+    if (!provider) return;
+    const hint = $("model-hint");
+    hint.textContent = refresh ? "đang hỏi lại Hermes…" : "đang tải danh sách từ Hermes…";
+    try {
+      const data = await api(
+        "/api/models?provider=" + encodeURIComponent(provider) + (refresh ? "&refresh=1" : "")
+      );
+      const list = $("model-list");
+      list.innerHTML = "";
+      (data.models || []).forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        list.appendChild(option);
+      });
+      const parts = [];
+      parts.push((data.models || []).length + " model khả dụng");
+      if (data.default) parts.push("Hermes mặc định: " + data.default);
+      hint.textContent = parts.join(" · ");
+      if (!$("model-input").value && data.default) $("model-input").value = data.default;
+      $("model-input").placeholder = data.default || "nhập tên model";
+    } catch (e) {
+      hint.textContent = e.message;
+    }
+  }
+
+  $("provider-select").addEventListener("change", () => {
+    $("model-input").value = "";
+    renderProviderDetails();
+    loadModels(false);
+  });
+
+  $("model-reload").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await loadModels(true);   // hỏi lại provider bằng key hiện có
+      toast("Đã cập nhật danh sách model.", "ok");
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   $("model-save").addEventListener("click", async (event) => {
     const button = event.currentTarget;   // giữ tham chiếu TRƯỚC await
@@ -253,24 +322,6 @@
     }
   });
 
-  $("apikey-test").addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const key = $("apikey-input").value.trim();
-    if (!key) return toast("Chưa nhập API key.", "err");
-    button.disabled = true;
-    try {
-      const data = await api("/api/test-key", {
-        method: "POST",
-        body: { provider: $("provider-select").value, api_key: key },
-      });
-      toast("Key hợp lệ (HTTP " + data.status_code + ").", "ok");
-    } catch (e) {
-      toast(e.message, "err");
-    } finally {
-      button.disabled = false;
-    }
-  });
-
   $("apikey-save").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     const key = $("apikey-input").value.trim();
@@ -282,8 +333,9 @@
         body: { provider: $("provider-select").value, api_key: key },
       });
       $("apikey-input").value = "";
-      toast("Đã lưu key, gateway đang khởi động lại.", "ok");
+      toast("Đã lưu key, đang hỏi Hermes danh sách model…", "ok");
       await loadProviders();
+      await loadModels(true);   // lấy được model = key dùng được thật
     } catch (e) {
       toast(e.message, "err");
     } finally {

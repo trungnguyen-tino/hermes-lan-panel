@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from hermes_panel import hermes_catalog
 from hermes_panel.envfile import read_env
 from hermes_panel.hermes_config import CODEX_DEFAULT_MODEL, CODEX_PROVIDER, get_model
 
@@ -128,11 +129,57 @@ def test_logs_returns_lines(auth_client, monkeypatch):
     assert data["lines"] == ["dòng 1", "dòng 2"]
 
 
-def test_providers_include_codex_and_current_model(auth_client, settings):
+@pytest.fixture
+def fake_catalog(monkeypatch):
+    """Giả lập danh mục Hermes (test chạy trên máy không cài Hermes Agent)."""
+    catalog = [
+        {"id": "openai-codex", "label": "ChatGPT", "description": "", "auth_type": "oauth",
+         "tab": "accounts", "env_key": "", "signup_url": "", "order": 0},
+        {"id": "deepseek", "label": "DeepSeek", "description": "", "auth_type": "api_key",
+         "tab": "keys", "env_key": "DEEPSEEK_API_KEY", "signup_url": "", "order": 1},
+    ]
+
+    async def fake_providers(_settings):
+        return catalog
+
+    async def fake_models(_settings, provider, *, refresh=False):
+        return {"models": ["deepseek-v4-pro", "deepseek-v4-flash"], "default": "deepseek-v4-pro"}
+
+    monkeypatch.setattr("hermes_panel.hermes_catalog.providers", fake_providers)
+    monkeypatch.setattr("hermes_panel.hermes_catalog.models", fake_models)
+    return catalog
+
+
+def test_providers_come_from_hermes_catalog(auth_client, fake_catalog):
     data = auth_client.get("/api/providers").json()["data"]
     ids = [p["id"] for p in data["providers"]]
-    assert CODEX_PROVIDER in ids and "deepseek" in ids
+    assert ids == ["openai-codex", "deepseek"]
     assert data["current"] == {"provider": "", "model": ""}
+
+
+def test_providers_warn_when_hermes_is_missing(auth_client, monkeypatch):
+    """Chưa cài Hermes thì báo rõ, tuyệt đối không bịa danh sách thay thế."""
+    async def boom(_settings):
+        raise hermes_catalog.CatalogError("Chưa cài Hermes Agent trên máy này.")
+
+    monkeypatch.setattr("hermes_panel.hermes_catalog.providers", boom)
+    data = auth_client.get("/api/providers").json()["data"]
+    assert data["providers"] == []
+    assert "Chưa cài Hermes" in data["warning"]
+
+
+def test_models_listed_from_hermes(auth_client, fake_catalog):
+    data = auth_client.get("/api/models?provider=deepseek").json()["data"]
+    assert data["models"] == ["deepseek-v4-pro", "deepseek-v4-flash"]
+    assert data["default"] == "deepseek-v4-pro"
+
+
+def test_models_report_catalog_failure(auth_client, monkeypatch):
+    async def boom(_settings, provider, *, refresh=False):
+        raise hermes_catalog.CatalogError("Hermes trả lỗi")
+
+    monkeypatch.setattr("hermes_panel.hermes_catalog.models", boom)
+    assert auth_client.get("/api/models?provider=deepseek").status_code == 503
 
 
 def test_update_model_writes_config_and_restarts(auth_client, settings, no_restart):
@@ -147,7 +194,7 @@ def test_update_model_clamps_codex_slug(auth_client, settings, no_restart):
     assert resp.json()["data"] == {"provider": CODEX_PROVIDER, "model": CODEX_DEFAULT_MODEL}
 
 
-def test_api_key_saved_to_both_env_stores(auth_client, settings, no_restart):
+def test_api_key_saved_to_both_env_stores(auth_client, settings, no_restart, fake_catalog):
     resp = auth_client.put("/api/api-key", json={"provider": "deepseek", "api_key": "sk-test-1234"})
     assert resp.json()["data"]["key"] == "DEEPSEEK_API_KEY"
     assert read_env(settings.env_file)["DEEPSEEK_API_KEY"] == "sk-test-1234"
@@ -159,7 +206,7 @@ def test_api_key_saved_to_both_env_stores(auth_client, settings, no_restart):
     assert deepseek["key_masked"] == "****1234"  # không lộ key đầy đủ
 
 
-def test_api_key_deleted_from_both_env_stores(auth_client, settings, no_restart):
+def test_api_key_deleted_from_both_env_stores(auth_client, settings, no_restart, fake_catalog):
     auth_client.put("/api/api-key", json={"provider": "deepseek", "api_key": "sk-test-1234"})
     resp = auth_client.request("DELETE", "/api/api-key?provider=deepseek")
     assert resp.json()["data"]["removed"] is True
