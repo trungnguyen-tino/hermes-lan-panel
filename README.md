@@ -53,7 +53,7 @@ CHAT UI: http://192.168.232.79:9119
 | `--admin-user admin` | Tài khoản đăng nhập panel |
 | `--admin-pass '...'` | Mật khẩu panel (bỏ trống = tự sinh, in ra cuối script) |
 | `--chat-url https://chat.cty.vn` | URL nút "Mở chat UI" (khi đã proxy qua NPM) |
-| `--chat-local` | Chat UI chỉ nghe 127.0.0.1 (an toàn nhất, nhưng phải SSH tunnel mới xem được) |
+| `--chat-local` | Chat UI chỉ nghe 127.0.0.1 (phải SSH tunnel mới xem được) |
 | `--allow-lan 192.168.232.0/24` | Chỉ mở cổng cho dải LAN này (khi UFW đang bật) |
 | `--skip-zalo` | Không cài plugin Zalo |
 | `--skip-hermes` | Chỉ cài/nâng cấp panel |
@@ -66,16 +66,15 @@ CHAT UI: http://192.168.232.79:9119
 - Forward: `192.168.232.79` port `8088`, scheme `http`
 - Bật **Websockets Support** và **Block Common Exploits**
 
-**Chat UI** (tuỳ chọn) — Hermes chat UI **không có mật khẩu**, nên:
+**Chat UI** (tuỳ chọn) — Proxy Host:
 
-- Gắn **Access List** (Basic Auth) trong NPM, hoặc chỉ mở trong LAN
-- Tab *Advanced* thêm dòng sau, vì Hermes kiểm tra Host header nghiêm ngặt:
+- Domain: `chat.cty.vn`
+- Forward: `192.168.232.79` port `9119`, scheme `http`
+- Bật **Websockets Support**
 
-```nginx
-proxy_set_header Host localhost:9119;
-```
-
-Không cần chat UI thì cài lại với `--chat-local` cho gọn.
+Chat UI có trang đăng nhập riêng của Hermes, **dùng chung tài khoản/mật khẩu với panel**
+(installer ghi `dashboard.basic_auth` vào `config.yaml`). Không cần chat UI thì cài lại
+với `--chat-local` — khi đó nó chỉ nghe `127.0.0.1`.
 
 ## Dùng hằng ngày
 
@@ -141,7 +140,8 @@ curl http://127.0.0.1:8088/health        # panel còn sống?
 | Bấm "Kết nối Zalo" báo sidecar chưa sẵn sàng | `cd /root/.hermes/plugins/zalo-personal/sidecar && npm install` rồi thử lại |
 | Không đọc được link device-code của ChatGPT | Xem `journalctl -u hermes-panel`; hoặc dùng ô *dán sẵn auth.json* trong thẻ ChatGPT |
 | Gateway `activating`/lỗi liên tục | Thường do chưa chọn model — vào thẻ *Model & API key* chọn provider rồi lưu |
-| Chat UI trả 400 qua NPM | Thiếu `proxy_set_header Host localhost:9119;` trong tab Advanced |
+| `hermes-dashboard` khởi động lại liên tục | Log báo *Refusing to bind dashboard to 0.0.0.0* → chưa có mật khẩu chat UI. Chạy lại installer kèm `--admin-pass '...'` |
+| Quên mật khẩu chat UI | Nó luôn bằng mật khẩu panel; đặt lại cả hai bằng `--admin-pass` |
 
 ## Phát triển
 
@@ -163,6 +163,13 @@ HERMES_PANEL_ENV_FILE=/đường/dẫn/panel.env .venv/bin/uvicorn hermes_panel.
 - Panel có đăng nhập riêng (bcrypt cost 12, session cookie ký HMAC, khoá 10 lần sai/15 phút mỗi IP).
 - API key hiển thị dạng che (`****1234`), không bao giờ trả về nguyên văn.
 - Panel chạy `root` (cần `systemctl`) — chỉ mở trong LAN hoặc sau Access List của NPM, đừng đưa thẳng ra Internet.
-- Chat UI Hermes **không có** lớp đăng nhập nào.
+- Chat UI có đăng nhập riêng của Hermes (mật khẩu băm scrypt trong `config.yaml`), dùng chung tài khoản với panel.
+- Hermes ≥ 0.20 **từ chối** mở chat UI ra ngoài `127.0.0.1` khi chưa cấu hình auth; cờ `--insecure` cũ nay vô hiệu.
+
+## Đã kiểm chứng
+
+Cài trọn vẹn trên Ubuntu 24.04.4 (4GB RAM) với **Hermes Agent v0.20.2**, đường truyền ~200KB/s:
+3 service chạy ổn định, panel đăng nhập được từ LAN, luồng device-code ChatGPT trả về URL + mã thật,
+luồng Zalo spawn được sidecar và trả về ảnh QR.
 
 MIT. Hermes Agent là sản phẩm của Nous Research (MIT), dự án này không liên kết với họ.
