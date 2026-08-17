@@ -177,7 +177,9 @@ if [[ "$SKIP_HERMES" != "true" ]]; then
   fi
 
   # Cron gửi tin sạch: bỏ phần bọc "Cronjob Response: … (job_id: …)".
-  HERMES_HOME="${HERMES_HOME}" "${HERMES_SRC_DIR}/.venv/bin/python" - <<'PYEOF' >>"${LOG_FILE}" 2>&1 \
+  # Dùng `env` chứ không gán tiền tố: HERMES_HOME là readonly nên
+  # `HERMES_HOME=... lệnh` sẽ bị bash chặn ("readonly variable") và bỏ qua lệnh.
+  env HERMES_HOME="${HERMES_HOME}" "${HERMES_SRC_DIR}/.venv/bin/python" - <<'PYEOF' >>"${LOG_FILE}" 2>&1 \
     || log "CẢNH BÁO: không đặt được cron.wrap_response=false"
 import os, yaml
 p = os.path.join(os.environ["HERMES_HOME"], "config.yaml")
@@ -214,7 +216,7 @@ if [[ "$WITH_ZALO" == "true" && "$SKIP_HERMES" != "true" ]]; then
     # plugin.yaml (không phải tên thư mục) — xem hermes_cli/plugins.py.
     ZALO_KEY="$(grep -E '^name:' "${ZALO_PLUGIN_DIR}/plugin.yaml" 2>/dev/null | head -1 | cut -d: -f2 | xargs)"
     ZALO_KEY="${ZALO_KEY:-zalo-personal-platform}"
-    HERMES_HOME="${HERMES_HOME}" /usr/local/bin/hermes plugins enable "${ZALO_KEY}" \
+    env HERMES_HOME="${HERMES_HOME}" /usr/local/bin/hermes plugins enable "${ZALO_KEY}" \
       >>"${LOG_FILE}" 2>&1 || log "CẢNH BÁO: bật plugin ${ZALO_KEY} thất bại — bật lại từ panel"
     log "Đã cài plugin Zalo tại ${ZALO_PLUGIN_DIR}"
     # platforms.zalo-personal.enabled sẽ được panel bật khi đặt chủ bot
