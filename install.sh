@@ -145,12 +145,20 @@ mkdir -p "${INSTALL_DIR}" "${HERMES_HOME}" /opt/data/zalo
 # ---- 5. Hermes Agent ------------------------------------------------------
 if [[ "$SKIP_HERMES" != "true" ]]; then
   step "5. Cài Hermes Agent (ref=${HERMES_REF})"
+  # Shallow clone: repo Hermes ~670MB nếu lấy cả lịch sử, trên đường truyền yếu
+  # (vài trăm KB/s) sẽ mất cả tiếng. VPS không cần lịch sử git — chỉ cần mã nguồn
+  # của đúng một ref. Nâng cấp sau này cũng fetch --depth 1 rồi reset.
   if [[ ! -d "${HERMES_SRC_DIR}/.git" ]]; then
-    git clone "${HERMES_REPO_URL}" "${HERMES_SRC_DIR}"
+    rm -rf "${HERMES_SRC_DIR}"
+    git clone --depth 1 --branch "${HERMES_REF}" "${HERMES_REPO_URL}" "${HERMES_SRC_DIR}" \
+      || git clone --depth 1 "${HERMES_REPO_URL}" "${HERMES_SRC_DIR}" \
+      || die "Không clone được Hermes Agent"
+  else
+    git -C "${HERMES_SRC_DIR}" fetch --depth 1 origin "${HERMES_REF}" \
+      && git -C "${HERMES_SRC_DIR}" reset --hard FETCH_HEAD \
+      || log "CẢNH BÁO: không cập nhật được Hermes, dùng bản đang có"
   fi
-  git -C "${HERMES_SRC_DIR}" fetch --tags origin
-  git -C "${HERMES_SRC_DIR}" checkout "${HERMES_REF}"
-  git -C "${HERMES_SRC_DIR}" pull --ff-only origin "${HERMES_REF}" 2>/dev/null || true
+  log "Hermes ref: $(git -C "${HERMES_SRC_DIR}" log -1 --format='%h %s' 2>/dev/null || echo '?')"
 
   [[ -d "${HERMES_SRC_DIR}/.venv" ]] || uv venv --python "$PYTHON_PIN" "${HERMES_SRC_DIR}/.venv"
   # cd vào thư mục nguồn rồi cài ".[extras]" — dạng "<path>[extras]" không phải
